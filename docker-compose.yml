@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sendworker
+      POSTGRES_PASSWORD: sendworker
+      POSTGRES_DB: sendworker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sendworker -d sendworker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["npm", "run", "migrate"]
+    environment:
+      DATABASE_URL: postgres://sendworker:sendworker@postgres:5432/sendworker
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    build: .
+    command: ["npm", "run", "seed"]
+    environment:
+      DATABASE_URL: postgres://sendworker:sendworker@postgres:5432/sendworker
+      SEED_MAILBOXES: "50"
+      SEED_CAMPAIGNS: "10"
+      SEED_EMAILS: "10000"
+      SEED_DUE_RATIO: "0.9"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command: ["npm", "run", "worker"]
+    environment:
+      DATABASE_URL: postgres://sendworker:sendworker@postgres:5432/sendworker
+      WORKER_ID: ${WORKER_ID:-worker}
+      WORKER_BATCH_SIZE: "10"
+      WORKER_POLL_INTERVAL_MS: "500"
+      PROVIDER_SUCCESS_RATE: "0.80"
+      PROVIDER_TRANSIENT_RATE: "0.12"
+      PROVIDER_THROTTLED_RATE: "0.05"
+      PROVIDER_HARD_BOUNCE_RATE: "0.03"
+      PROVIDER_AMBIGUOUS_RATE: "0.01"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    deploy:
+      replicas: 1
+
+volumes:
+  postgres_data:
